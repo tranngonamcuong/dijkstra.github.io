@@ -1,1 +1,247 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mô phỏng Dijkstra - Đồ thị vô hướng</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --secondary: #64748b;
+            --success: #22c55e;
+            --highlight: #f59e0b;
+            --bg: #f8fafc;
+        }
 
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        
+        /* Layout */
+        .container { display: grid; grid-template-columns: 350px 1fr; flex-grow: 1; overflow: hidden; }
+        
+        /* Sidebar */
+        .sidebar { background: white; padding: 20px; border-right: 1px solid #e2e8f0; overflow-y: auto; box-shadow: 2px 0 5px rgba(0,0,0,0.05); }
+        h2 { font-size: 1.2rem; color: var(--primary); margin-top: 0; }
+        textarea { width: 100%; height: 120px; margin-bottom: 15px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 8px; box-sizing: border-box; font-family: monospace; }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; font-size: 0.9rem; margin-bottom: 5px; font-weight: bold; }
+        input { width: 60px; padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; }
+        button { width: 100%; padding: 10px; margin-bottom: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
+        .btn-draw { background: var(--secondary); color: white; }
+        .btn-run { background: var(--primary); color: white; }
+        
+        /* Graph Area */
+        .display-area { position: relative; background: #fff; display: flex; flex-direction: column; }
+        #graph-svg { flex-grow: 1; width: 100%; height: 100%; }
+        
+        /* Logic Table */
+        #status-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 20px; }
+        #status-table th, #status-table td { border: 1px solid #e2e8f0; padding: 8px; text-align: center; }
+        #status-table th { background: #f1f5f9; }
+
+        /* Graph Styles */
+        .link { stroke: #cbd5e1; stroke-width: 2; }
+        .link.active { stroke: var(--highlight); stroke-width: 4; }
+        .link.path { stroke: var(--success); stroke-width: 5; }
+        .node circle { fill: white; stroke: var(--primary); stroke-width: 2; transition: all 0.3s; }
+        .node.visited circle { fill: var(--primary); }
+        .node.current circle { fill: var(--highlight); stroke: #000; }
+        .node text { font-size: 12px; font-weight: bold; pointer-events: none; text-anchor: middle; }
+        .edge-label { fill: #64748b; font-size: 11px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sidebar">
+        <h2>Cấu hình Đồ thị</h2>
+        <label>Nhập các cạnh (Nguồn Đích Trọng số):</label>
+        <textarea id="edgeInput">A B 4
+A C 2
+C B 1
+B D 5
+C D 8
+C E 10
+D E 2</textarea>
+        
+        <div class="input-group">
+            <label>Điểm Bắt đầu (A): <input type="text" id="startNode" value="A"></label>
+            <label>Điểm Kết thúc (B): <input type="text" id="endNode" value="D"></label>
+        </div>
+
+        <button class="btn-draw" onclick="initGraph()">Vẽ Đồ Thị</button>
+        <button class="btn-run" onclick="runDijkstra()">Chạy Dijkstra</button>
+        
+        <h3>Bảng trạng thái</h3>
+        <table id="status-table">
+            <thead>
+                <tr>
+                    <th>Đỉnh</th>
+                    <th>Khoảng cách</th>
+                    <th>Trước đó</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="display-area">
+        <svg id="graph-svg"></svg>
+    </div>
+</div>
+
+<script>
+    let nodes = [];
+    let links = [];
+    const svg = d3.select("#graph-svg");
+    let simulation;
+
+    function initGraph() {
+        const text = document.getElementById('edgeInput').value.trim();
+        const lines = text.split('\n');
+        const nodeSet = new Set();
+        links = [];
+
+        lines.forEach(line => {
+            const [u, v, w] = line.split(/\s+/);
+            if (u && v && w) {
+                nodeSet.add(u);
+                nodeSet.add(v);
+                links.push({ source: u, target: v, weight: parseInt(w) });
+            }
+        });
+
+        nodes = Array.from(nodeSet).map(id => ({ id }));
+        render();
+    }
+
+    function render() {
+        svg.selectAll("*").remove();
+        const width = document.getElementById('graph-svg').clientWidth;
+        const height = document.getElementById('graph-svg').clientHeight;
+
+        simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id).distance(150))
+            .force("charge", d3.forceManyBody().strength(-500))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        const link = svg.append("g")
+            .selectAll("line")
+            .data(links)
+            .enter().append("line")
+            .attr("class", "link")
+            .attr("id", d => `link-${d.source.id || d.source}-${d.target.id || d.target}`);
+
+        const edgeLabels = svg.append("g")
+            .selectAll("text")
+            .data(links)
+            .enter().append("text")
+            .attr("class", "edge-label")
+            .text(d => d.weight);
+
+        const node = svg.append("g")
+            .selectAll("g")
+            .data(nodes)
+            .enter().append("g")
+            .attr("class", "node")
+            .attr("id", d => `node-${d.id}`)
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended));
+
+        node.append("circle").attr("r", 20);
+        node.append("text").attr("dy", 4).text(d => d.id);
+
+        simulation.on("tick", () => {
+            link.attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            edgeLabels.attr("x", d => (d.source.x + d.target.x) / 2)
+                      .attr("y", d => (d.source.y + d.target.y) / 2);
+
+            node.attr("transform", d => `translate(${d.x},${d.y})`);
+        });
+    }
+
+    async function runDijkstra() {
+        const startId = document.getElementById('startNode').value;
+        const endId = document.getElementById('endNode').value;
+
+        // Reset UI
+        d3.selectAll(".node").classed("visited current", false);
+        d3.selectAll(".link").classed("active path", false);
+
+        let dist = {};
+        let prev = {};
+        let pq = new Set();
+
+        nodes.forEach(n => {
+            dist[n.id] = Infinity;
+            prev[n.id] = null;
+            pq.add(n.id);
+        });
+
+        dist[startId] = 0;
+        updateTable(dist, prev);
+
+        while (pq.size > 0) {
+            let u = Array.from(pq).reduce((minNode, node) => 
+                dist[node] < dist[minNode] ? node : minNode, Array.from(pq)[0]);
+
+            if (dist[u] === Infinity) break;
+            if (u === endId) break;
+
+            pq.delete(u);
+            d3.select(`#node-${u}`).classed("current", true);
+            await new Promise(r => setTimeout(r, 800));
+
+            // Tìm các láng giềng
+            const neighbors = links.filter(l => l.source.id === u || l.target.id === u);
+            
+            for (let edge of neighbors) {
+                let v = edge.source.id === u ? edge.target.id : edge.source.id;
+                if (!pq.has(v)) continue;
+
+                let alt = dist[u] + edge.weight;
+                if (alt < dist[v]) {
+                    dist[v] = alt;
+                    prev[v] = u;
+                    updateTable(dist, prev);
+                }
+            }
+
+            d3.select(`#node-${u}`).classed("current", false).classed("visited", true);
+        }
+
+        // Vẽ đường đi ngắn nhất
+        let curr = endId;
+        while (prev[curr]) {
+            let p = prev[curr];
+            d3.select(`#link-${curr}-${p}`).classed("path", true);
+            d3.select(`#link-${p}-${curr}`).classed("path", true);
+            curr = p;
+        }
+    }
+
+    function updateTable(dist, prev) {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = "";
+        Object.keys(dist).forEach(id => {
+            const row = `<tr><td>${id}</td><td>${dist[id] === Infinity ? '∞' : dist[id]}</td><td>${prev[id] || '-'}</td></tr>`;
+            tbody.innerHTML += row;
+        });
+    }
+
+    function dragstarted(event) { if (!event.active) simulation.alphaTarget(0.3).restart(); event.subject.fx = event.subject.x; event.subject.fy = event.subject.y; }
+    function dragged(event) { event.subject.fx = event.x; event.subject.fy = event.y; }
+    function dragended(event) { if (!event.active) simulation.alphaTarget(0); event.subject.fx = null; event.subject.fy = null; }
+
+    // Khởi tạo mặc định
+    window.onload = initGraph;
+</script>
+
+</body>
+</html>
